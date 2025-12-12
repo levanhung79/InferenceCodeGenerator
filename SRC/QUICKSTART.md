@@ -4,10 +4,18 @@
 
 ### Step 1: Create Virtual Environment
 
-**Linux/macOS:**
+**Linux/macOS (Native filesystem):**
 ```bash
 cd SRC
 python3 -m venv venv
+source venv/bin/activate
+```
+
+**WSL/Windows filesystem (`/mnt/`):**
+```bash
+cd SRC
+# Use --copies to avoid symlink issues
+python3 -m venv --copies venv
 source venv/bin/activate
 ```
 
@@ -142,16 +150,18 @@ iou_threshold = 0.45
 pip install onnxruntime
 ```
 
-### OpenCV not found (for verification)
+### OpenCV not found (for building C++ code)
 ```bash
 # Ubuntu/Debian
 sudo apt install libopencv-dev
 
-# Or use Python OpenCV
-pip install opencv-python
+# macOS
+brew install opencv
 ```
 
-### CMake not found (for C++ verification)
+⚠️ **Note:** Python `opencv-python` package is **NOT sufficient** for building C++ code. You need system OpenCV C++ libraries (`libopencv-dev` on Linux).
+
+### CMake not found (for building C++ code)
 ```bash
 # Ubuntu/Debian
 sudo apt install cmake
@@ -159,6 +169,9 @@ sudo apt install cmake
 # macOS
 brew install cmake
 ```
+
+### Build Dependencies Summary
+For detailed instructions on installing all build dependencies, see [INSTALL_BUILD_DEPS.md](INSTALL_BUILD_DEPS.md).
 
 ## Next Steps
 

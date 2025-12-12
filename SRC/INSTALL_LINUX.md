@@ -1,5 +1,7 @@
 # Linux Installation Guide
 
+> **WSL Users:** If you're using WSL with Windows filesystems (`/mnt/d/`), see [INSTALL_WSL.md](INSTALL_WSL.md) for symlink issues.
+
 ## Quick Setup (Recommended)
 
 ```bash
@@ -27,7 +29,11 @@ cd /mnt/d/DATA/PROJECTS/InferenceCodeGenerator/SRC
 ### 2. Create Virtual Environment
 
 ```bash
-python3 -m venv venv
+# For WSL/Windows filesystems, use --copies to avoid symlink issues
+python3 -m venv --copies venv
+
+# For native Linux filesystems, regular venv is fine
+# python3 -m venv venv
 ```
 
 This creates an isolated Python environment in the `venv/` directory.
@@ -141,7 +147,27 @@ sudo apt install libxcb-xinerama0 libxcb-cursor0
 # Or use X410/VcXsrv for Windows X server
 ```
 
+## Building Generated C++ Code
+
+After generating C++ code, you'll need additional dependencies to build it:
+
+### Required Build Dependencies
+
+```bash
+# Install CMake, compiler, and OpenCV C++ libraries
+sudo apt update
+sudo apt install cmake build-essential libopencv-dev
+
+# Download ONNX Runtime C++ libraries
+# See: https://github.com/microsoft/onnxruntime/releases
+```
+
+⚠️ **Important:** The Python `opencv-python` package is **NOT sufficient** for building C++ code. You need `libopencv-dev` (system OpenCV C++ libraries).
+
+See [INSTALL_BUILD_DEPS.md](INSTALL_BUILD_DEPS.md) for detailed instructions.
+
 ## Next Steps
 
-See `QUICKSTART.md` for usage examples.
+- See `QUICKSTART.md` for usage examples
+- See `INSTALL_BUILD_DEPS.md` for building generated C++ code
 

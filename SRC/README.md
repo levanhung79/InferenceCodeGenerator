@@ -2,7 +2,10 @@
 
 Generate C++/Python inference code from ONNX models for mobile platforms (Android/iOS).
 
-> **⚠️ Installation Note:** Modern Linux systems (Ubuntu 23.04+, Debian 12+) require a virtual environment due to PEP 668. See [INSTALL.md](INSTALL.md) or [INSTALL_LINUX.md](INSTALL_LINUX.md) for detailed instructions.
+> **⚠️ Installation Note:** 
+> - Modern Linux systems (Ubuntu 23.04+, Debian 12+) require a virtual environment due to PEP 668
+> - **WSL users:** If you see symlink errors, use `python3 -m venv --copies venv` or see [INSTALL_WSL.md](INSTALL_WSL.md)
+> - See [INSTALL.md](INSTALL.md), [INSTALL_LINUX.md](INSTALL_LINUX.md), or [INSTALL_WSL.md](INSTALL_WSL.md) for detailed instructions
 
 ## Quick Installation
 
@@ -23,14 +26,30 @@ setup.bat --gui
 
 ### Manual Installation
 
+**Linux/macOS (Native filesystem):**
 ```bash
 # Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate     # Windows
+source venv/bin/activate
 
 # Install
+pip install -e ".[gui]"
+```
+
+**WSL/Windows filesystem (`/mnt/`):**
+```bash
+# Use --copies to avoid symlink issues
+python3 -m venv --copies venv
+source venv/bin/activate
+
+# Install
+pip install -e ".[gui]"
+```
+
+**Windows:**
+```bash
+python -m venv venv
+venv\Scripts\activate
 pip install -e ".[gui]"
 ```
 
@@ -103,6 +122,8 @@ onnx_codegen/
 - [QUICKSTART.md](QUICKSTART.md) - Quick start guide
 - [INSTALL.md](INSTALL.md) - Detailed installation instructions
 - [INSTALL_LINUX.md](INSTALL_LINUX.md) - Linux-specific installation
+- [INSTALL_WSL.md](INSTALL_WSL.md) - WSL/Windows filesystem installation (symlink issues)
+- [INSTALL_BUILD_DEPS.md](INSTALL_BUILD_DEPS.md) - **Building generated C++ code** (CMake, OpenCV C++, etc.)
 - [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) - Implementation status
 
 ## License

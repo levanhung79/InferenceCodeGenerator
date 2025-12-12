@@ -29,16 +29,73 @@ fi
 # Create virtual environment
 echo ""
 echo "Creating virtual environment..."
+
+# Check if we're on WSL/Windows filesystem (common issue with symlinks)
+# Detect if we're on a Windows mount point
+IS_WINDOWS_FS=false
+if [[ "$(pwd)" == /mnt/* ]] || [[ "$(stat -f -c %T . 2>/dev/null)" == *"msdos"* ]] || [[ "$(df -T . | tail -1 | awk '{print $2}')" == *"fuseblk"* ]]; then
+    IS_WINDOWS_FS=true
+    echo "⚠️  Detected Windows filesystem (/mnt/). Symlinks may not work."
+    echo "   Creating venv on Linux filesystem instead..."
+fi
+
 if [ -d "venv" ]; then
     echo "Virtual environment already exists. Removing old one..."
     rm -rf venv
 fi
 
-python3 -m venv venv
+if [ "$IS_WINDOWS_FS" = true ]; then
+    # Create venv in Linux filesystem (home directory)
+    VENV_PATH="$HOME/.venvs/onnx-codegen-$(basename $(pwd))"
+    echo "Creating venv at: $VENV_PATH"
+    
+    # Create parent directory if needed
+    mkdir -p "$HOME/.venvs"
+    
+    # Remove old venv if exists
+    if [ -d "$VENV_PATH" ]; then
+        rm -rf "$VENV_PATH"
+    fi
+    
+    # Create venv on Linux filesystem
+    python3 -m venv "$VENV_PATH"
+    
+    # Create a symlink or activation script in project directory
+    echo "Creating activation script..."
+    cat > venv_activate.sh << EOF
+#!/bin/bash
+# Auto-generated activation script for venv on Linux filesystem
+source "$VENV_PATH/bin/activate"
+EOF
+    chmod +x venv_activate.sh
+    
+    # Activate the venv
+    source "$VENV_PATH/bin/activate"
+    
+    # Store venv path for later use
+    echo "$VENV_PATH" > .venv_path
+    
+    echo "✅ Virtual environment created on Linux filesystem"
+    echo "   To activate in the future, run: source venv_activate.sh"
+else
+    # Use --copies flag to avoid symlink issues (for other edge cases)
+    echo "Creating venv with --copies flag..."
+    python3 -m venv --copies venv
+    source venv/bin/activate
+fi
 
-# Activate virtual environment
-echo "Activating virtual environment..."
-source venv/bin/activate
+# Verify activation (if not already activated above)
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "Activating virtual environment..."
+    if [ -f "venv_activate.sh" ]; then
+        source venv_activate.sh
+    elif [ -d "venv" ]; then
+        source venv/bin/activate
+    else
+        echo "Error: Virtual environment not found"
+        exit 1
+    fi
+fi
 
 # Verify activation
 if [ -z "$VIRTUAL_ENV" ]; then
@@ -71,7 +128,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "To activate the virtual environment in the future:"
 echo "  cd $(pwd)"
-echo "  source venv/bin/activate"
+if [ -f "venv_activate.sh" ]; then
+    echo "  source venv_activate.sh          # (venv on Linux filesystem)"
+else
+    echo "  source venv/bin/activate         # (venv in project directory)"
+fi
 echo ""
 echo "To use the tool:"
 echo "  python -m onnx_codegen --check-env    # Check dependencies"

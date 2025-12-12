@@ -113,7 +113,7 @@ class EnvironmentChecker:
                 return ComponentStatus(
                     available=True,
                     message=version,
-                    required=False  # Only needed for verification
+                    required=False  # Only needed for building C++ code
                 )
             except:
                 pass
@@ -122,7 +122,12 @@ class EnvironmentChecker:
             available=False,
             message="CMake not found",
             required=False,
-            suggestions=["Install CMake for C++ code verification"]
+            suggestions=[
+                "Ubuntu/Debian: sudo apt install cmake",
+                "macOS: brew install cmake",
+                "Windows: Download from https://cmake.org/download/",
+                "CMake is required to build the generated C++ code"
+            ]
         )
     
     def _check_compiler(self) -> ComponentStatus:
@@ -144,24 +149,73 @@ class EnvironmentChecker:
         )
     
     def _check_opencv(self) -> ComponentStatus:
-        """Check OpenCV."""
-        # Check Python OpenCV
+        """Check OpenCV C++ libraries (required for building generated C++ code)."""
+        # First check if pkg-config can find OpenCV (C++ libraries)
         try:
-            import cv2
-            return ComponentStatus(
-                available=True,
-                message=f"OpenCV Python {cv2.__version__}",
-                required=False
+            result = subprocess.run(
+                ["pkg-config", "--modversion", "opencv4"],
+                capture_output=True, text=True, timeout=5
             )
-        except ImportError:
+            if result.returncode == 0:
+                version = result.stdout.strip()
+                return ComponentStatus(
+                    available=True,
+                    message=f"OpenCV C++ {version} (via pkg-config)",
+                    required=False
+                )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         
-        # Check system OpenCV (would need pkg-config or manual check)
+        # Try opencv (without 4) for older installations
+        try:
+            result = subprocess.run(
+                ["pkg-config", "--modversion", "opencv"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                version = result.stdout.strip()
+                return ComponentStatus(
+                    available=True,
+                    message=f"OpenCV C++ {version} (via pkg-config)",
+                    required=False
+                )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        
+        # Check Python OpenCV (not sufficient for C++, but helpful for tool)
+        python_opencv_available = False
+        try:
+            import cv2
+            python_opencv_available = True
+            python_version = cv2.__version__
+        except ImportError:
+            python_version = None
+        
+        if python_opencv_available:
+            return ComponentStatus(
+                available=False,
+                message=f"OpenCV Python {python_version} found, but C++ libraries needed",
+                required=False,
+                suggestions=[
+                    "⚠️  Python OpenCV is NOT sufficient for building C++ code",
+                    "Ubuntu/Debian: sudo apt install libopencv-dev",
+                    "macOS: brew install opencv",
+                    "Windows: Download from https://opencv.org/releases/",
+                    "The generated C++ code requires OpenCV C++ libraries to compile"
+                ]
+            )
+        
         return ComponentStatus(
             available=False,
-            message="OpenCV not found",
+            message="OpenCV C++ libraries not found",
             required=False,
-            suggestions=["Install: pip install opencv-python or system package"]
+            suggestions=[
+                "⚠️  Python 'opencv-python' package is NOT sufficient for C++ compilation",
+                "Ubuntu/Debian: sudo apt install libopencv-dev",
+                "macOS: brew install opencv",
+                "Windows: Download from https://opencv.org/releases/",
+                "The generated C++ code requires OpenCV C++ libraries to compile"
+            ]
         )
     
     def _check_android_ndk(self) -> ComponentStatus:
