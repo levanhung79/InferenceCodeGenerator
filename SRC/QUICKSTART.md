@@ -2,13 +2,46 @@
 
 ## Installation
 
+### Step 1: Create Virtual Environment
+
+**Linux/macOS:**
 ```bash
 cd SRC
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**Windows:**
+```bash
+cd SRC
+python -m venv venv
+venv\Scripts\activate
+```
+
+### Step 2: Install Package
+
+```bash
+# Basic installation
 pip install -e .
 
-# With GUI support
+# With GUI support (recommended)
 pip install -e ".[gui]"
 ```
+
+### Alternative: Using pipx (Linux/macOS)
+
+```bash
+# Install pipx
+sudo apt install pipx  # Ubuntu/Debian
+# or
+brew install pipx      # macOS
+
+# Install package
+cd SRC
+pipx install -e ".[gui]"
+```
+
+**Note:** Modern Linux systems (Ubuntu 23.04+, Debian 12+) use PEP 668 to protect system Python. Always use a virtual environment or pipx.
 
 ## CLI Usage
 

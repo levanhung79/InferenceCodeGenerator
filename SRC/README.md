@@ -2,6 +2,38 @@
 
 Generate C++/Python inference code from ONNX models for mobile platforms (Android/iOS).
 
+> **⚠️ Installation Note:** Modern Linux systems (Ubuntu 23.04+, Debian 12+) require a virtual environment due to PEP 668. See [INSTALL.md](INSTALL.md) or [INSTALL_LINUX.md](INSTALL_LINUX.md) for detailed instructions.
+
+## Quick Installation
+
+### Linux/macOS
+
+```bash
+cd SRC
+chmod +x setup.sh
+./setup.sh --gui
+```
+
+### Windows
+
+```cmd
+cd SRC
+setup.bat --gui
+```
+
+### Manual Installation
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate     # Windows
+
+# Install
+pip install -e ".[gui]"
+```
+
 ## Features
 
 - **Two Operating Modes**:
@@ -14,19 +46,8 @@ Generate C++/Python inference code from ONNX models for mobile platforms (Androi
 
 - **Supported Platforms**:
   - PC/Desktop (OpenCV, stb_image, raw buffer)
-  - Android (JNI + Kotlin)
-  - iOS (ObjC++ bridge + Swift)
-
-## Installation
-
-```bash
-# Install from source
-cd SRC
-pip install -e .
-
-# With GUI support
-pip install -e ".[gui]"
-```
+  - Android (JNI + Kotlin) - *Coming soon*
+  - iOS (ObjC++ bridge + Swift) - *Coming soon*
 
 ## Quick Start
 
@@ -77,7 +98,13 @@ onnx_codegen/
 - PyYAML >= 6.0
 - Pillow >= 10.0.0
 
+## Documentation
+
+- [QUICKSTART.md](QUICKSTART.md) - Quick start guide
+- [INSTALL.md](INSTALL.md) - Detailed installation instructions
+- [INSTALL_LINUX.md](INSTALL_LINUX.md) - Linux-specific installation
+- [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) - Implementation status
+
 ## License
 
 MIT License
-

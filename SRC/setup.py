@@ -18,8 +18,8 @@ setup(
     author="ONNX CodeGen Team",
     author_email="",
     url="https://github.com/yourusername/onnx-codegen",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    packages=find_packages(),
+    package_dir={"": "."},
     python_requires=">=3.9",
     install_requires=[
         "onnx>=1.14.0",
