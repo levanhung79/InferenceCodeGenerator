@@ -1,0 +1,15 @@
+# Core dependencies
+onnx>=1.14.0
+onnxruntime>=1.16.0
+numpy>=1.24.0
+PyYAML>=6.0
+Pillow>=10.0.0
+
+# GUI dependencies (optional)
+PySide6>=6.5.0
+
+# Development dependencies (optional)
+pytest>=7.0
+black
+mypy
+

@@ -568,6 +568,85 @@ class ArchitectureDetector:
             suggestions["preprocessing"]["resize_mode"] = "resize"
         
         return suggestions
+    
+    def validate_detection(self, model_info: ONNXModelInfo) -> Tuple[bool, List[str]]:
+        """
+        Validate architecture detection by running test inference.
+        
+        Returns:
+            (is_valid, warnings): Whether detection is valid and any warnings
+        """
+        warnings = []
+        
+        # Check confidence threshold
+        if self.detect().confidence < 0.5:
+            warnings.append(
+                f"Low confidence detection ({self.detect().confidence:.2f}). "
+                "User confirmation required."
+            )
+        
+        # Check for dynamic shapes
+        if model_info.has_dynamic_shape:
+            warnings.append(
+                "Model has dynamic input shapes. Generated code may need "
+                "runtime shape handling."
+            )
+        
+        # Check for unsupported operators
+        unsupported_ops = self._check_unsupported_operators(model_info.operators)
+        if unsupported_ops:
+            warnings.append(
+                f"Model contains operators that may not be fully supported: "
+                f"{', '.join(unsupported_ops)}"
+            )
+        
+        return len(warnings) == 0, warnings
+    
+    def _check_unsupported_operators(self, operators: List[str]) -> List[str]:
+        """Check for operators that may cause issues."""
+        # Common operators that might need special handling
+        potentially_unsupported = [
+            "QuantizeLinear", "DequantizeLinear",  # Quantization
+            "Custom",  # Custom operators
+            "If", "Loop", "Scan",  # Control flow
+        ]
+        return [op for op in operators if op in potentially_unsupported]
+```
+
+### 3.2.1. Architecture Detection Validation & User Confirmation
+
+**Principle**: Low-confidence detections require user confirmation before proceeding.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ARCHITECTURE DETECTION VALIDATION                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  CONFIDENCE LEVELS:                                             │
+│  ──────────────────                                             │
+│  • High (≥ 0.7):   Auto-proceed, show info                     │
+│  • Medium (0.5-0.7): Show warning, allow override                │
+│  • Low (< 0.5):     Require user confirmation                   │
+│  • Unknown (< 0.3): Require manual selection                    │
+│                                                                 │
+│  VALIDATION CHECKS:                                             │
+│  ────────────────                                               │
+│  ✅ Dynamic shape detection                                     │
+│  ✅ Unsupported operator detection                              │
+│  ✅ Output shape consistency                                    │
+│  ✅ Metadata validation                                         │
+│                                                                 │
+│  USER CONFIRMATION UI:                                          │
+│  ────────────────────                                           │
+│  When confidence < 0.5, show dialog:                            │
+│  • Detected architecture: [YOLOv8] (confidence: 0.42)           │
+│  • Evidence: [list of evidence]                                 │
+│  • Options:                                                     │
+│    - [✓] Confirm and proceed                                   │
+│    - [ ] Select different architecture                          │
+│    - [ ] Use generic/unknown template                           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.3. Python Code Parser
@@ -748,6 +827,47 @@ class PythonCodeParser:
                 errors=errors,
                 warnings=warnings
             )
+    
+    def validate_extraction(self, model_path: str, test_image_path: Optional[str] = None) -> Tuple[bool, List[str]]:
+        """
+        Validate extracted config by running actual inference.
+        
+        Args:
+            model_path: Path to ONNX model
+            test_image_path: Optional test image for validation
+            
+        Returns:
+            (is_valid, warnings): Whether extraction is valid
+        """
+        warnings = []
+        
+        # Check if critical info is missing
+        if not self.preprocessing.input_size:
+            warnings.append("Input size not detected. Using ONNX model default.")
+        
+        if not self.postprocessing.conf_threshold:
+            warnings.append("Confidence threshold not detected. Using default 0.25.")
+        
+        # If test image provided, run inference to validate
+        if test_image_path:
+            try:
+                validation_result = self._run_validation_inference(
+                    model_path, test_image_path
+                )
+                if not validation_result.success:
+                    warnings.append(
+                        f"Validation inference failed: {validation_result.error}"
+                    )
+            except Exception as e:
+                warnings.append(f"Could not validate with test image: {e}")
+        
+        return len(warnings) == 0, warnings
+    
+    def _run_validation_inference(self, model_path: str, image_path: str):
+        """Run inference to validate extracted config."""
+        # This would execute the Python code and check if it runs successfully
+        # Implementation would use subprocess to run the Python inference code
+        pass
     
     def _extract_preprocessing(self) -> ParsedPreprocessing:
         """Extract preprocessing config."""
@@ -1006,6 +1126,150 @@ class UltralyticsParser(PythonCodeParser):
             warnings=warnings
         )
 ```
+
+### 3.3.1. Python Code Parser Validation
+
+**Principle**: Validate extracted config by running actual inference when possible.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PYTHON CODE PARSER VALIDATION                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  VALIDATION STRATEGY:                                           │
+│  ───────────────────                                            │
+│  1. Static Analysis:                                            │
+│     • Check for missing critical parameters                     │
+│     • Validate extracted values (ranges, types)                │
+│                                                                 │
+│  2. Runtime Validation (if test image provided):               │
+│     • Execute Python code with test image                       │
+│     • Verify inference succeeds                                 │
+│     • Compare extracted config vs actual behavior               │
+│                                                                 │
+│  3. User Review (if AST parsing failed):                       │
+│     • Highlight extracted values                                │
+│     • Show evidence (code lines)                                │
+│     • Allow manual override                                     │
+│                                                                 │
+│  WARNING LEVELS:                                                │
+│  ───────────────                                                │
+│  • Info: AST parsing succeeded, high confidence                 │
+│  • Warning: Regex fallback used, review recommended            │
+│  • Error: Critical parameters missing, manual input required   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.4. Dynamic Shape Handling
+
+**Problem**: ONNX models with dynamic input shapes (batch, height, width) require special handling in generated code.
+
+```python
+# core/dynamic_shape_handler.py
+
+from typing import List, Optional, Tuple
+from dataclasses import dataclass
+
+@dataclass
+class DynamicShapeInfo:
+    """Information about dynamic dimensions."""
+    dimension_index: int  # e.g., 0 for batch, 2 for height
+    is_dynamic: bool
+    default_value: Optional[int] = None
+    min_value: Optional[int] = None
+    max_value: Optional[int] = None
+    symbolic_name: Optional[str] = None  # e.g., "batch_size"
+
+
+class DynamicShapeHandler:
+    """Handle dynamic shapes in ONNX models."""
+    
+    def __init__(self, model_info: ONNXModelInfo):
+        self.model_info = model_info
+        self.dynamic_dims = self._analyze_dynamic_dims()
+    
+    def _analyze_dynamic_dims(self) -> List[DynamicShapeInfo]:
+        """Analyze which dimensions are dynamic."""
+        dynamic = []
+        
+        if not self.model_info.inputs:
+            return dynamic
+        
+        input_shape = self.model_info.inputs[0].shape
+        
+        for idx, dim in enumerate(input_shape):
+            if isinstance(dim, str) or dim is None or dim == -1:
+                dynamic.append(DynamicShapeInfo(
+                    dimension_index=idx,
+                    is_dynamic=True,
+                    symbolic_name=dim if isinstance(dim, str) else None
+                ))
+        
+        return dynamic
+    
+    def requires_runtime_shape_handling(self) -> bool:
+        """Check if generated code needs runtime shape handling."""
+        return len(self.dynamic_dims) > 0
+    
+    def generate_shape_handling_code(self) -> str:
+        """Generate C++ code for handling dynamic shapes."""
+        if not self.requires_runtime_shape_handling():
+            return ""
+        
+        code = """
+        // Dynamic shape handling
+        auto input_shape = session_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+        
+        // Handle dynamic dimensions
+        """
+        
+        for dim_info in self.dynamic_dims:
+            if dim_info.dimension_index == 0:  # Batch dimension
+                code += """
+        if (input_shape[0] == -1) {
+            input_shape[0] = 1;  // Default batch size
+        }
+        """
+            elif dim_info.dimension_index == 2:  # Height
+                code += """
+        if (input_shape[2] == -1) {
+            input_shape[2] = INPUT_HEIGHT;  // Use configured height
+        }
+        """
+            elif dim_info.dimension_index == 3:  # Width
+                code += """
+        if (input_shape[3] == -1) {
+            input_shape[3] = INPUT_WIDTH;  // Use configured width
+        }
+        """
+        
+        return code
+    
+    def get_warnings(self) -> List[str]:
+        """Get warnings about dynamic shapes."""
+        warnings = []
+        
+        if self.requires_runtime_shape_handling():
+            warnings.append(
+                "Model has dynamic input shapes. Generated code will use "
+                "default values for dynamic dimensions. You may need to "
+                "modify the code for variable input sizes."
+            )
+            
+            dynamic_dims_str = ", ".join([
+                f"dim[{d.dimension_index}]" for d in self.dynamic_dims
+            ])
+            warnings.append(f"Dynamic dimensions: {dynamic_dims_str}")
+        
+        return warnings
+```
+
+**UI Behavior**:
+- When dynamic shapes detected, show warning in analysis view
+- Allow user to set default values for dynamic dimensions
+- Generate code with runtime shape handling
+- Document limitations in generated README
 
 ---
 
@@ -2128,6 +2392,30 @@ class ConfigBuilder:
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+#### 5.5.6. Enhanced Verification Strategy
+
+**Improvements to Address Weak Points**:
+
+1. **Multiple Test Images**:
+   - Support batch verification with multiple test images
+   - Detect edge cases (empty detections, many detections, edge of image)
+   - Statistical comparison (not just single image)
+
+2. **Ground Truth Validation** (Future Enhancement):
+   - Option to provide ground truth annotations
+   - Calculate mAP or accuracy metrics
+   - Detect systematic errors
+
+3. **Numerical Precision Handling**:
+   - Account for float32 vs float64 differences
+   - Configurable tolerance for comparison
+   - Warn about precision differences
+
+4. **Performance Profiling**:
+   - Measure preprocessing, inference, postprocessing times separately
+   - Compare Python vs C++ performance
+   - Identify bottlenecks
 
 #### 5.5.4. iOS Warning UI (on non-macOS)
 
@@ -4495,6 +4783,13 @@ class CodeGenerator:
             description="Build and usage instructions"
         ))
         
+        # Validate templates before writing
+        validation_errors = self._validate_templates(result.files)
+        if validation_errors:
+            result.success = False
+            result.errors.extend(validation_errors)
+            return result
+        
         # Write all files
         for f in result.files:
             with open(f.path, 'w', encoding='utf-8') as fp:
@@ -4583,6 +4878,13 @@ class CodeGenerator:
             description="Android integration guide"
         ))
         
+        # Validate templates before writing
+        validation_errors = self._validate_templates(result.files)
+        if validation_errors:
+            result.success = False
+            result.errors.extend(validation_errors)
+            return result
+        
         # Write all files
         for f in result.files:
             with open(f.path, 'w', encoding='utf-8') as fp:
@@ -4668,6 +4970,13 @@ class CodeGenerator:
             description="iOS integration guide"
         ))
         
+        # Validate templates before writing
+        validation_errors = self._validate_templates(result.files)
+        if validation_errors:
+            result.success = False
+            result.errors.extend(validation_errors)
+            return result
+        
         # Write all files
         for f in result.files:
             with open(f.path, 'w', encoding='utf-8') as fp:
@@ -4675,6 +4984,30 @@ class CodeGenerator:
         
         if callback:
             callback(100, "Done!")
+    
+    def _validate_templates(self, files: List[GeneratedFile]) -> List[str]:
+        """
+        Validate that all template variables are filled.
+        
+        Returns:
+            List of error messages if validation fails
+        """
+        errors = []
+        import re
+        
+        # Pattern to find unfilled template variables
+        template_pattern = re.compile(r'\{[A-Z_]+\}|\{\{[^}]+\}\}')
+        
+        for file in files:
+            # Check for unfilled placeholders
+            matches = template_pattern.findall(file.content)
+            if matches:
+                errors.append(
+                    f"Template validation failed in {file.path}: "
+                    f"Unfilled variables: {', '.join(set(matches))}"
+                )
+        
+        return errors
     
     # ==================== Template Rendering Methods ====================
     
@@ -9433,6 +9766,19 @@ class ErrorCode(Enum):
     RUN_FAILED = 502
     VERIFICATION_MISMATCH = 503
     VERIFICATION_TIMEOUT = 504
+    
+    # Architecture detection errors (6xx)
+    ARCHITECTURE_LOW_CONFIDENCE = 601
+    ARCHITECTURE_UNKNOWN = 602
+    ARCHITECTURE_VALIDATION_FAILED = 603
+    
+    # Dynamic shape errors (7xx)
+    DYNAMIC_SHAPE_UNSUPPORTED = 701
+    DYNAMIC_SHAPE_MISSING_DEFAULT = 702
+    
+    # Template errors (8xx)
+    TEMPLATE_MISSING_VARIABLE = 801
+    TEMPLATE_RENDER_FAILED = 802
 
 
 @dataclass
@@ -9493,6 +9839,37 @@ ERROR_TEMPLATES = {
             "Try with different test image"
         ]
     },
+    ErrorCode.ARCHITECTURE_LOW_CONFIDENCE: {
+        "message": "Architecture detection has low confidence",
+        "suggestions": [
+            "Review detected architecture and evidence",
+            "Manually select architecture if incorrect",
+            "Provide Python inference code for better accuracy"
+        ]
+    },
+    ErrorCode.ARCHITECTURE_UNKNOWN: {
+        "message": "Could not detect model architecture",
+        "suggestions": [
+            "Provide Python inference code (Mode A) for better results",
+            "Manually configure preprocessing/postprocessing",
+            "Use generic template and customize manually"
+        ]
+    },
+    ErrorCode.DYNAMIC_SHAPE_UNSUPPORTED: {
+        "message": "Model has dynamic shapes that may not be fully supported",
+        "suggestions": [
+            "Set default values for dynamic dimensions in config",
+            "Review generated code for runtime shape handling",
+            "Consider exporting model with fixed input shapes"
+        ]
+    },
+    ErrorCode.TEMPLATE_MISSING_VARIABLE: {
+        "message": "Template variable missing during code generation",
+        "suggestions": [
+            "Check config has all required fields",
+            "Report this as a bug with model info"
+        ]
+    },
 }
 
 
@@ -9537,9 +9914,512 @@ class ErrorHandler:
 
 ---
 
-## 12. Summary
+## 11.4. Testing Strategy
 
-### 12.1. Two-Phase Workflow Summary
+### 11.4.1. Unit Testing
+
+```python
+# tests/test_analyzer.py
+# tests/test_detector.py
+# tests/test_parser.py
+# tests/test_config_builder.py
+# tests/test_generator.py
+```
+
+**Test Coverage Requirements**:
+- ONNX Analyzer: Test with various model types, dynamic shapes, edge cases
+- Architecture Detector: Test all supported architectures, low confidence cases
+- Python Parser: Test AST parsing, regex fallback, various code patterns
+- Config Builder: Test priority order (Python > ONNX > defaults)
+- Code Generator: Test template rendering, validation, all platforms
+
+### 11.4.2. Integration Testing
+
+**Test Scenarios**:
+1. **Mode A (ONNX + Python)**:
+   - Valid Python code → should extract config correctly
+   - Invalid Python code → should handle gracefully
+   - Missing Python code → should fall back to Mode B
+
+2. **Mode B (ONNX only)**:
+   - Known architecture → should detect correctly
+   - Unknown architecture → should handle gracefully
+   - Low confidence → should require confirmation
+
+3. **Code Generation**:
+   - Generate for all platforms (PC, Android, iOS)
+   - Verify generated code compiles
+   - Verify generated code runs correctly
+
+4. **Verification**:
+   - Python vs C++ comparison
+   - Multiple test images
+   - Edge cases (empty detections, many detections)
+
+### 11.4.3. Regression Testing
+
+**Test Suite**:
+- Maintain test models for each architecture
+- Test with each new version to ensure no regressions
+- Performance benchmarks to detect slowdowns
+
+### 11.4.4. User Acceptance Testing
+
+**Test Cases**:
+- Real-world models from users
+- Various preprocessing/postprocessing configurations
+- Different platforms and environments
+
+---
+
+## 12. Edge Cases and Limitations
+
+### 12.1. Supported Model Types
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MODEL TYPE SUPPORT                                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  FULLY SUPPORTED:                                               │
+│  ────────────────                                               │
+│  ✅ Object Detection:                                           │
+│     • YOLOv5, YOLOv8, YOLOv11                                  │
+│     • DETR (Detection Transformer)                             │
+│     • SSD (Single Shot Detector)                               │
+│     • EfficientDet                                             │
+│     • End-to-end models (with NMS)                             │
+│                                                                 │
+│  ✅ Classification:                                             │
+│     • ResNet, EfficientNet, MobileNet                          │
+│     • Generic classification models                            │
+│                                                                 │
+│  PARTIALLY SUPPORTED:                                           │
+│  ────────────────────                                           │
+│  ⚠️  Segmentation:                                             │
+│     • Basic support, may need manual postprocessing            │
+│                                                                 │
+│  ⚠️  Pose Estimation:                                          │
+│     • Basic support, output format may vary                    │
+│                                                                 │
+│  NOT SUPPORTED:                                                 │
+│  ───────────────                                                │
+│  ❌ Models with custom operators (may fail)                     │
+│  ❌ Models requiring external libraries                         │
+│  ❌ Models with complex control flow (If/Loop/Scan)            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 12.2. Dynamic Shape Limitations
+
+**Current Behavior**:
+- Tool detects dynamic shapes but generates code with fixed default values
+- Runtime shape inference not fully implemented
+- User must manually handle variable input sizes
+
+**Recommendations**:
+- Export model with fixed input shapes when possible
+- Use ONNX shape inference to determine typical sizes
+- Modify generated code for variable batch sizes if needed
+
+### 12.3. Quantized Models
+
+**Limitations**:
+- INT8 quantized models may work but not explicitly tested
+- Quantization-aware preprocessing may differ
+- No automatic detection of quantization
+
+**Workaround**:
+- Provide Python code that handles quantization correctly
+- Manually configure preprocessing for quantized models
+
+### 12.4. Multiple Output Models
+
+**Current Support**:
+- Tool handles multiple outputs but focuses on first output
+- Postprocessing assumes single detection output
+- Multi-task models may need manual customization
+
+**Recommendation**:
+- For multi-output models, provide Python code for reference
+- Manually adjust postprocessing for additional outputs
+
+### 12.5. Large Models
+
+**Considerations**:
+- Very large models (>500MB) may cause memory issues during analysis
+- Generated code may need optimization for memory-constrained devices
+- Mobile deployment may require model quantization
+
+**Recommendations**:
+- Use model optimization tools (ONNX Runtime optimization)
+- Consider model quantization for mobile
+- Test on target device early
+
+### 12.6. Platform-Specific Limitations
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PLATFORM LIMITATIONS                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  iOS on Windows/Linux:                                         │
+│  ──────────────────────                                         │
+│  • Code generation: ✅ Supported                                │
+│  • Code verification: ❌ Requires macOS                          │
+│  • Solution: Verify C++ core, iOS wrapper is simple bridge    │
+│                                                                 │
+│  Android Emulator:                                             │
+│  ────────────────                                              │
+│  • Requires x86_64 emulator for verification                   │
+│  • ARM devices need physical device or ARM emulator            │
+│                                                                 │
+│  Dependency Versions:                                          │
+│  ───────────────────                                           │
+│  • ONNX Runtime: Tested with 1.16.0+                           │
+│  • OpenCV: Tested with 4.5.0+                                  │
+│  • CMake: Requires 3.18+                                        │
+│  • Older versions may have compatibility issues                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 12.7. Error Recovery Strategies
+
+**When Architecture Detection Fails**:
+1. Try Mode A (provide Python code) for higher accuracy
+2. Manually select architecture from list
+3. Use generic template and configure manually
+
+**When Python Parsing Fails**:
+1. Review extracted values and evidence
+2. Manually override incorrect values
+3. Provide simpler Python code as reference
+
+**When Verification Fails**:
+1. Check preprocessing config (most common issue)
+2. Verify test image format and size
+3. Compare with Python inference output manually
+4. Check for numerical precision differences (float32 vs float64)
+
+**When Code Generation Fails**:
+1. Check template validation errors
+2. Verify all config fields are set
+3. Check output directory permissions
+4. Review error messages for specific issues
+
+---
+
+## 13. Design Weaknesses and Recommendations
+
+This section identifies potential weak points in the design and provides recommendations for improvement.
+
+### 13.1. Architecture Detection Reliability (CRITICAL)
+
+**Problem**:
+- Mode B (ONNX-only) uses heuristic-based detection with only 70-85% confidence
+- Hardcoded patterns (e.g., YOLOv8: `shapes[0][2] in [8400, 6300, 5040, 20160, 25200]`)
+- Falls back to `UNKNOWN` if confidence < 0.3, providing minimal guidance
+
+**Risks**:
+- Wrong architecture detection → wrong postprocessing → incorrect results
+- Brittle to model variants (different input sizes, custom architectures)
+- No validation that detected architecture matches actual model behavior
+
+**Recommendations**:
+1. **Require user confirmation** for low-confidence detections (< 0.7)
+2. **Add test inference** to validate architecture assumptions
+3. **Support custom architecture templates** for user-defined patterns
+4. **Show confidence score** prominently in UI with evidence
+5. **Allow manual override** even when detection succeeds
+
+**Implementation Priority**: HIGH
+
+---
+
+### 13.2. Python Code Parsing Fragility (HIGH)
+
+**Problem**:
+- Falls back to regex-only parsing if AST parsing fails
+- Regex patterns can miss edge cases or match incorrectly
+- No validation that extracted config matches actual Python code behavior
+
+**Evidence from spec**:
+```python
+except SyntaxError as e:
+    warnings.append(f"AST parse failed: {e}. Using regex only.")
+```
+
+**Risks**:
+- **Silent failures**: Regex may miss critical preprocessing steps
+- **False positives**: Regex matches unrelated code patterns
+- **No guarantee** extracted config is correct
+
+**Recommendations**:
+1. **Require user review** when AST parsing fails (don't silently fall back)
+2. **Run Python code** and compare outputs to validate extracted config
+3. **Provide manual config override** with clear UI
+4. **Show evidence** (code lines) for each extracted value
+5. **Add validation step**: Test extracted config against Python inference
+
+**Implementation Priority**: HIGH
+
+---
+
+### 13.3. Dynamic Shape Handling (HIGH)
+
+**Problem**:
+- Tool detects dynamic shapes (`is_dynamic = True`) but generated code assumes fixed sizes
+- Generated code uses hardcoded shapes:
+  ```cpp
+  std::vector<int64_t> input_shape = {1, 3, INPUT_HEIGHT, INPUT_WIDTH};
+  ```
+
+**Risks**:
+- Runtime failures for models with dynamic batch/height/width
+- No handling for symbolic dimensions
+- Generated code may not work for variable input sizes
+
+**Recommendations**:
+1. **Generate dynamic shape handling code** when dynamic shapes detected
+2. **Support shape inference** at runtime using ONNX Runtime
+3. **Warn users prominently** when dynamic shapes are detected
+4. **Provide option** to fix shapes during export (preferred solution)
+5. **Add runtime shape validation** in generated code
+
+**Implementation Priority**: HIGH
+
+---
+
+### 13.4. Verification Strategy Limitations (MEDIUM)
+
+**Problems**:
+- Compares Python vs C++ outputs, but both could be wrong in the same way
+- iOS cannot be verified on Windows/Linux (only code generation)
+- No verification of mobile code on non-macOS systems
+- Verification uses single test image (may miss edge cases)
+
+**Risks**:
+- **False confidence**: Both implementations share same bug
+- **iOS code quality unknown** on Windows/Linux
+- **Single-image testing** misses edge cases
+
+**Recommendations**:
+1. **Add ground-truth validation**: Compare against known correct outputs
+2. **Support multiple test images** with different characteristics
+3. **Provide iOS code quality checks** even without execution (static analysis)
+4. **Add regression test suite** for common models
+5. **Show confidence intervals** for verification results
+
+**Implementation Priority**: MEDIUM
+
+---
+
+### 13.5. Error Handling Too Generic (MEDIUM)
+
+**Problem**:
+- Many `except Exception as e` blocks hide specific issues
+- Error messages may not be actionable
+- No distinction between recoverable and fatal errors
+
+**Example from spec**:
+```python
+except Exception as e:
+    result.errors.append(f"Generation failed: {str(e)}")
+```
+
+**Risks**:
+- Hard to debug issues
+- Users get generic errors without context
+- No recovery path for recoverable errors
+
+**Recommendations**:
+1. **Use specific exception types** (ONNXError, ParseError, GenerationError, etc.)
+2. **Provide actionable error messages** with suggestions
+3. **Implement retry/recovery mechanisms** for transient failures
+4. **Add error context**: Stack traces, input values, config state
+5. **Categorize errors**: Fatal vs recoverable, with appropriate UI handling
+
+**Implementation Priority**: MEDIUM
+
+---
+
+### 13.6. Model Type Limitations (MEDIUM)
+
+**Problem**:
+- Focused on detection models (YOLO, DETR, SSD)
+- Limited support for other architectures
+- `UNKNOWN` architecture provides minimal guidance
+
+**Risks**:
+- Tool may not work for segmentation, pose estimation, etc.
+- Users with unsupported models get poor results
+- No clear path for extension
+
+**Recommendations**:
+1. **Document supported model types clearly** in UI and docs
+2. **Provide template system** for custom architectures
+3. **Add architecture-agnostic mode** with minimal assumptions
+4. **Support plugin system** for user-defined architectures
+5. **Show warnings** when model type is unsupported
+
+**Implementation Priority**: MEDIUM
+
+---
+
+### 13.7. Dependency Version Conflicts (MEDIUM)
+
+**Problem**:
+- Heavy dependencies (OpenCV, ONNX Runtime, CMake, etc.)
+- No version compatibility checks
+- Different platforms may have different versions
+
+**Risks**:
+- Generated code may not compile with user's dependencies
+- Runtime behavior differences across versions
+- Hard to diagnose version-related issues
+
+**Recommendations**:
+1. **Check dependency versions** at startup
+2. **Test with multiple versions** during development
+3. **Document version requirements** clearly
+4. **Provide version compatibility matrix**
+5. **Warn about known incompatible versions**
+
+**Implementation Priority**: MEDIUM
+
+---
+
+### 13.8. Template System Validation (LOW-MEDIUM)
+
+**Problem**:
+- No validation that all template placeholders are filled
+- No check for missing template variables
+- Template errors only surface at generation time
+
+**Risks**:
+- Generated code may have `{PLACEHOLDER}` strings
+- Compilation failures due to incomplete templates
+- Hard to debug template issues
+
+**Recommendations**:
+1. **Validate templates before generation**: Check all placeholders filled
+2. **Unit test template rendering** with various configs
+3. **Provide template validation tool** for developers
+4. **Add template syntax checking** at load time
+5. **Show template errors clearly** with line numbers
+
+**Implementation Priority**: LOW-MEDIUM
+
+---
+
+### 13.9. Performance Optimization Gaps (LOW-MEDIUM)
+
+**Problem**:
+- Focus on correctness, not performance
+- No optimization of generated code
+- No profiling/benchmarking guidance
+
+**Risks**:
+- Generated code may be slow
+- No guidance on optimization
+- Users may need to manually optimize
+
+**Recommendations**:
+1. **Add performance profiling** to verification step
+2. **Generate optimized code variants** (with/without optimizations)
+3. **Provide optimization recommendations** based on model
+4. **Benchmark generated code** against reference implementations
+5. **Document performance characteristics** of generated code
+
+**Implementation Priority**: LOW-MEDIUM
+
+---
+
+### 13.10. Edge Cases Not Addressed (LOW-MEDIUM)
+
+**Problems**:
+- Very large models (memory issues)
+- Models with multiple outputs
+- Custom ONNX operators
+- Quantized models (INT8, etc.)
+- Models with different data types (FP16, etc.)
+
+**Risks**:
+- Tool may fail silently or produce incorrect code
+- No guidance for edge cases
+
+**Recommendations**:
+1. **Document limitations clearly** (see Section 12)
+2. **Add validation** for unsupported features
+3. **Provide warnings** for edge cases
+4. **Add memory checks** for large models
+5. **Support data type detection** and appropriate handling
+
+**Implementation Priority**: LOW-MEDIUM
+
+---
+
+### 13.11. Testing Strategy Missing (LOW)
+
+**Problem**:
+- No testing strategy for the tool itself
+- No mention of unit/integration tests
+- No regression testing approach
+
+**Risks**:
+- Bugs may go undetected
+- Regressions possible
+- Hard to maintain quality
+
+**Recommendations**:
+1. **Add comprehensive test suite**:
+   - Unit tests for each module
+   - Integration tests for full workflow
+   - Regression tests with known models
+2. **Test with various model types** (YOLO, DETR, SSD, etc.)
+3. **Implement continuous integration** (CI/CD)
+4. **Add performance benchmarks** to detect regressions
+5. **Test on multiple platforms** (Windows, Linux, macOS)
+
+**Implementation Priority**: LOW (but important for long-term maintenance)
+
+---
+
+### 13.12. Priority Recommendations Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  IMPLEMENTATION PRIORITY                                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  IMMEDIATE (Before v4.0 release):                             │
+│  ────────────────────────────────                               │
+│  1. Architecture Detection: Require user confirmation          │
+│  2. Error Handling: Specific exceptions + actionable messages  │
+│  3. Dynamic Shapes: Warnings + runtime handling                │
+│                                                                 │
+│  SHORT-TERM (v4.1):                                            │
+│  ────────────────                                              │
+│  4. Python Parsing: Validation + user review                   │
+│  5. Template Validation: Pre-generation checks                 │
+│  6. Verification: Multiple test images + ground truth           │
+│                                                                 │
+│  LONG-TERM (v4.2+):                                            │
+│  ────────────────                                              │
+│  7. Model Types: Support more architectures                     │
+│  8. Performance: Optimization + profiling                       │
+│  9. Testing: Comprehensive test suite                         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 14. Summary
+
+### 14.1. Two-Phase Workflow Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -9583,7 +10463,7 @@ class ErrorHandler:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.2. Code Generation Summary
+### 14.2. Code Generation Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -9619,7 +10499,7 @@ class ErrorHandler:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.3. Dependencies Summary
+### 14.3. Dependencies Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -9647,7 +10527,7 @@ class ErrorHandler:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.4. GUI Workflow
+### 14.4. GUI Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -9687,7 +10567,7 @@ class ErrorHandler:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.5. Files Structure
+### 14.5. Files Structure
 
 ```
 onnx_codegen/
